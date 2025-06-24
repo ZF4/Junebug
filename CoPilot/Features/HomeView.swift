@@ -1,8 +1,9 @@
 import SwiftUI
 import FamilyControls
+import ManagedSettings
 
 struct SafeDrivingHomeView: View {
-    @EnvironmentObject var blockingManager: AppBlockingManager
+    @EnvironmentObject var appBlockingManager: AppBlockingManager
     @EnvironmentObject var model: MyModel
     @State private var isDriving = false
     @State private var isDiscouragedPresented = false
@@ -41,7 +42,7 @@ struct SafeDrivingHomeView: View {
                 }
                 .padding(.horizontal, 16)
             }
-            .familyActivityPicker(isPresented: $isDiscouragedPresented, selection: $model.selectionToDiscourage)
+            .familyActivityPicker(isPresented: $isDiscouragedPresented, selection: $appBlockingManager.selectionToDiscourage)
             .background(
                 LinearGradient(
                     colors: [Color(red: 0.97, green: 0.98, blue: 1.0), Color(red: 0.93, green: 0.94, blue: 0.99)],
@@ -100,7 +101,7 @@ struct SafeDrivingHomeView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(isDriving ? .white : .primary)
                         
-                        Text(isDriving ? "\(model.selectionToDiscourage.applications.count) apps blocked" : "Tap to start manual mode")
+                        Text(isDriving ? "\(appBlockingManager.selectionToDiscourage.applications.count) apps blocked" : "Tap to start manual mode")
                             .font(.subheadline)
                             .foregroundColor(isDriving ? Color.white.opacity(0.8) : .secondary)
                     }
@@ -125,9 +126,9 @@ struct SafeDrivingHomeView: View {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     isDriving.toggle()
                     if isDriving {
-                        model.setShieldRestrictions()
+                        appBlockingManager.setShieldRestrictions()
                     } else {
-                        model.resetDiscouragedItems()
+                        appBlockingManager.resetDiscouragedItems()
                     }
                 }
             }) {
@@ -244,22 +245,46 @@ struct SafeDrivingHomeView: View {
             
             HStack(spacing: 16) {
                 HStack(spacing: -8) {
-                    ForEach(0..<5, id: \.self) { index in
-                        let emojis = ["📱", "💬", "📧", "📸", "🎵"]
-                        Text(emojis[index])
-                            .font(.title2)
-                            .frame(width: 40, height: 40)
-                            .background(Color.gray.opacity(0.1))
-                            .clipShape(Circle())
-                            .overlay(
+                    let appTokens = Array(appBlockingManager.selectionToDiscourage.applicationTokens.prefix(5))
+
+                    if appTokens.isEmpty {
+                        // Show placeholder when no apps are selected
+                        ForEach(0..<3, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: 40, height: 40)
+                                .overlay(
+                                    Image(systemName: "plus")
+                                        .foregroundColor(.gray)
+                                )
+                        }
+                    } else {
+                        ForEach(Array(appTokens.enumerated()), id: \.offset) { index, token in
+                            AppIconView(token: token)
+                        }
+                        
+                        // Show +X more indicator if there are more than 5 apps
+                        if appBlockingManager.selectionToDiscourage.applicationTokens.count > 5 {
+                            ZStack {
                                 Circle()
-                                    .stroke(Color.white, lineWidth: 2)
-                            )
+                                    .fill(Color.blue.opacity(0.1))
+                                    .frame(width: 40, height: 40)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.white, lineWidth: 2)
+                                    )
+                                
+                                Text("+\(appBlockingManager.selectionToDiscourage.applicationTokens.count - 5)")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.blue)
+                            }
+                        }
                     }
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(model.selectionToDiscourage.applications.count) apps")
+                    Text("\(appBlockingManager.selectionToDiscourage.applications.count) apps")
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.primary)
@@ -366,5 +391,6 @@ struct SafeDrivingHomeView_Previews: PreviewProvider {
     static var previews: some View {
         SafeDrivingHomeView()
             .environmentObject(MyModel())
+            .environmentObject(AppBlockingManager())
     }
 }
