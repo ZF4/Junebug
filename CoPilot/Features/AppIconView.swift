@@ -13,7 +13,8 @@ struct AppIconView: View {
             .frame(width: 40, height: 40)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                Circle()
+                    .fill(Color.gray.opacity(0.2))
                     .stroke(Color.white, lineWidth: 2)
             )
     }
