@@ -12,13 +12,13 @@ import CoreData
 class TripDataManager: ObservableObject {
     static let shared = TripDataManager()
     
-    @Published var recentTrips: [TripData] = []
+    @Published var recentTrips: [TripDataModel] = []
     
     private init() {
         loadRecentTrips()
     }
     
-    func saveTrip(_ trip: TripData) {
+    func saveTrip(_ trip: TripDataModel) {
         // Save to Core Data
         recentTrips.insert(trip, at: 0)
         

@@ -2,18 +2,32 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 import CoreLocation
+import SwiftData
 
 struct SafeDrivingHomeView: View {
     @EnvironmentObject var appBlockingManager: AppBlockingManager
-    @EnvironmentObject var model: MyModel
     @StateObject private var locationManager = LocationManager.shared
     @State private var isDiscouragedPresented = false
+    @State private var showingAlert = false
+    @State private var viewAllClicked = false
     @State private var tempSelection = FamilyActivitySelection()
-    @State private var tempAppInfos: [BlockedAppInfo] = []
+    @State private var tempAppInfos: [BlockedAppModel] = []
+    
+    // SwiftData integration
+    @Environment(\.modelContext) private var modelContext
+//    @Query private var users: [UserModel]
+    
+    var appOrApps: String {
+        if appBlockingManager.blockedAppsCount == 1 {
+            return "app"
+        } else {
+            return "apps"
+        }
+    }
     
     // Real data from LocationManager
-    @State private var recentTrips: [TripData] = []
-    @State private var weeklyStats = WeeklyStats(totalTrips: 0, totalTime: "0h 0m", averageScore: 0, appsBlocked: 0)
+    @State private var recentTrips: [TripDataModel] = []
+    @State private var weeklyStats = WeeklyStatsModel(totalTrips: 0, totalTime: "0h 0m", averageScore: 0, appsBlocked: 0)
     
     var body: some View {
         NavigationView {
@@ -50,6 +64,7 @@ struct SafeDrivingHomeView: View {
                 .navigationBarHidden(true)
                 .onAppear {
                     locationManager.requestPermissionsAndStart()
+                    locationManager.setAppBlockingManager(appBlockingManager)
                     loadTripData()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .tripStarted)) { _ in
@@ -99,26 +114,26 @@ struct SafeDrivingHomeView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "car")
                         .font(.title2)
-                        .foregroundColor(locationManager.isInTrip ? .white : .blue)
+                        .foregroundColor(locationManager.isStillDriving ? .white : .blue)
                         .frame(width: 48, height: 48)
-                        .background(locationManager.isInTrip ? Color.white.opacity(0.2) : Color.blue.opacity(0.1))
+                        .background(locationManager.isStillDriving ? Color.white.opacity(0.2) : Color.blue.opacity(0.1))
                         .clipShape(Circle())
                     
                     VStack(alignment: .leading, spacing: 2) {
                         Text(drivingStatusText)
                             .font(.title3)
                             .fontWeight(.semibold)
-                            .foregroundColor(locationManager.isInTrip ? .white : .primary)
+                            .foregroundColor(locationManager.isStillDriving ? .white : .primary)
                         
                         Text(drivingStatusSubtext)
                             .font(.subheadline)
-                            .foregroundColor(locationManager.isInTrip ? Color.white.opacity(0.8) : .secondary)
+                            .foregroundColor(locationManager.isStillDriving ? Color.white.opacity(0.8) : .secondary)
                     }
                 }
                 
                 Spacer()
                 
-                if locationManager.isInTrip {
+                if locationManager.isStillDriving {
                     HStack(spacing: 4) {
                         Image(systemName: "shield.checkered")
                             .font(.title3)
@@ -131,31 +146,9 @@ struct SafeDrivingHomeView: View {
                 }
             }
             
-            // Trip Progress Bar (only show during trip)
-            if locationManager.isInTrip {
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("Trip Progress")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.8))
-                        
-                        Spacer()
-                        
-                        Text("\(Int(locationManager.tripProgress * 100))%")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                    }
-                    
-                    ProgressView(value: locationManager.tripProgress)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .white))
-                        .scaleEffect(y: 2)
-                }
-            }
-            
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    if locationManager.isInTrip {
+                    if locationManager.isStillDriving {
                         // End current trip
                         locationManager.endTrip()
                     } else {
@@ -164,28 +157,26 @@ struct SafeDrivingHomeView: View {
                     }
                 }
             }) {
-                Text(locationManager.isInTrip ? "End Driving Session" : "Start Manual Mode")
+                Text(locationManager.isStillDriving ? "End Driving Session" : "Start Manual Mode")
                     .font(.headline)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(
-                        locationManager.isInTrip ?
-                        Color.white.opacity(0.2) :
-                        Color.blue
+                        locationManager.isStillDriving ?
+                        Color.white.opacity(0.2) : Color.blue
                     )
                     .overlay(
-                        locationManager.isInTrip ?
+                        locationManager.isStillDriving ?
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1) :
-                        nil
+                            .stroke(Color.white.opacity(0.3), lineWidth: 1) : nil
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(24)
         .background(
-            locationManager.isInTrip ?
+            locationManager.isStillDriving ?
             LinearGradient(colors: [Color.green, Color(red: 0.0, green: 0.7, blue: 0.4)], startPoint: .leading, endPoint: .trailing) :
                 LinearGradient(colors: [Color.white, Color.white], startPoint: .leading, endPoint: .trailing)
         )
@@ -213,7 +204,7 @@ struct SafeDrivingHomeView: View {
         case .detecting:
             return "Speed: \(String(format: "%.0f", locationManager.currentSpeedMph)) mph"
         case .inTrip:
-            return "\(appBlockingManager.selectionToDiscourage.applications.count) apps blocked"
+            return "\(appBlockingManager.selectionToDiscourage.applications.count) \(appOrApps) blocked"
         case .ending:
             return "Stopping soon..."
         }
@@ -304,7 +295,7 @@ struct SafeDrivingHomeView: View {
             HStack(spacing: 16) {
                 HStack(spacing: -3) {
                     let appTokens = Array(appBlockingManager.selectionToDiscourage.applicationTokens.prefix(5))
-
+                    
                     if appTokens.isEmpty {
                         // Show placeholder when no apps are selected
                         ForEach(0..<3, id: \.self) { index in
@@ -343,7 +334,7 @@ struct SafeDrivingHomeView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(appBlockingManager.selectionToDiscourage.applications.count) apps")
+                    Text("\(appBlockingManager.selectionToDiscourage.applications.count) \(appOrApps)")
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.primary)
@@ -365,15 +356,17 @@ struct SafeDrivingHomeView: View {
     private var recentTripsView: some View {
         VStack(spacing: 16) {
             HStack {
-                Text("Recent Trips")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
+                HStack {
+                    Text("Recent Trips")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                }
                 
                 Spacer()
                 
                 Button(action: {
-                    // View all action
+                    viewAllClicked.toggle()
                 }) {
                     Text("View All")
                         .font(.subheadline)
@@ -405,7 +398,7 @@ struct SafeDrivingHomeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 VStack(spacing: 12) {
-                    ForEach(recentTrips.prefix(3), id: \.startTime) { trip in
+                    ForEach(recentTrips.prefix(viewAllClicked ? recentTrips.count : 3), id: \.startTime) { trip in
                         HStack(spacing: 12) {
                             Image(systemName: "car")
                                 .font(.title3)
@@ -420,7 +413,7 @@ struct SafeDrivingHomeView: View {
                                     .fontWeight(.medium)
                                     .foregroundColor(.primary)
                                 
-                                Text("\(formatDuration(trip.duration)) • \(trip.appsBlocked) apps blocked")
+                                Text("\(formatDuration(trip.duration)) • \(trip.appsBlocked) \(appOrApps) blocked")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -441,6 +434,13 @@ struct SafeDrivingHomeView: View {
                         .padding(12)
                         .background(Color.gray.opacity(0.05))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    
+                    if viewAllClicked {
+                        Text("Only the last 30 trips are saved")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
@@ -468,7 +468,7 @@ struct SafeDrivingHomeView: View {
         let averageScore = weeklyTrips.isEmpty ? 0 : weeklyTrips.reduce(0) { $0 + $1.safetyScore } / weeklyTrips.count
         let appsBlocked = weeklyTrips.reduce(0) { $0 + $1.appsBlocked }
         
-        weeklyStats = WeeklyStats(
+        weeklyStats = WeeklyStatsModel(
             totalTrips: totalTrips,
             totalTime: formatDuration(totalTime),
             averageScore: averageScore,
@@ -502,35 +502,11 @@ struct SafeDrivingHomeView: View {
     }
 }
 
-// MARK: - Data Models
-struct TripData: Identifiable {
-    let id = UUID()
-    let startTime: Date
-    let endTime: Date
-    let duration: TimeInterval
-    let distance: Double
-    let averageSpeed: Double
-    let maxSpeed: Double
-    let startLocation: CLLocation
-    let endLocation: CLLocation
-    let route: [CLLocation]
-    let appsBlocked: Int
-    let safetyScore: Int
-    let distractions: Int
-}
-
-struct WeeklyStats {
-    let totalTrips: Int
-    let totalTime: String
-    let averageScore: Int
-    let appsBlocked: Int
-}
 
 // MARK: - Preview
 struct SafeDrivingHomeView_Previews: PreviewProvider {
     static var previews: some View {
         SafeDrivingHomeView()
-            .environmentObject(MyModel())
             .environmentObject(AppBlockingManager())
     }
 }
