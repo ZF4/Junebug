@@ -14,7 +14,7 @@ private let _blockingManager = AppBlockingManager()
 
 class AppBlockingManager: ObservableObject {
     @Published var selectionToDiscourage = FamilyActivitySelection()
-    @Published var blockedAppsInfo: [BlockedAppInfo] = []
+    @Published var blockedAppsInfo: [BlockedAppModel] = []
     private let store = ManagedSettingsStore()
     
     init() {
@@ -38,7 +38,7 @@ class AppBlockingManager: ObservableObject {
     
     // Get blocked apps count
     var blockedAppsCount: Int {
-        return blockedAppsInfo.count
+        return selectionToDiscourage.applicationTokens.count
     }
 }
 

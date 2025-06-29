@@ -6,12 +6,12 @@ import ManagedSettings
 import ManagedSettingsUI
 import UIKit
 import CoreLocation
+import SwiftData
 
 @main
 struct CoPilotApp: App {
     @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @StateObject var appBlockingManager = AppBlockingManager()
-    @StateObject var model = MyModel.shared
     @StateObject var store = ManagedSettingsStore()
     
 
@@ -19,10 +19,10 @@ struct CoPilotApp: App {
     var body: some Scene {
         WindowGroup {
             SafeDrivingHomeView()
-                .environmentObject(model)
                 .environmentObject(store)
                 .environmentObject(appBlockingManager)
         }
+//        .modelContainer(for: UserModel.self)
     }
 }
 

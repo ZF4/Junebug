@@ -21,14 +21,22 @@ enum TripState {
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = LocationManager()
     
+    // Add a reference to the AppBlockingManager
+    private var appBlockingManager: AppBlockingManager?
+    
+    // Add a method to set the AppBlockingManager
+    func setAppBlockingManager(_ manager: AppBlockingManager) {
+        self.appBlockingManager = manager
+    }
+    
     private let manager = CLLocationManager()
     private var cancellables = Set<AnyCancellable>()
 
     // Published Properties
     @Published var currentSpeedMph: Double = 0.0
     @Published var tripState: TripState = .idle
-    @Published var isInTrip: Bool = false
-    @Published var currentTrip: TripData?
+    @Published var isStillDriving: Bool = false
+    @Published var currentTrip: TripDataModel?
     @Published var tripProgress: Double = 0.0 // 0.0 to 1.0
 
     // Trip Management
@@ -42,7 +50,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private let speedThreshold = 15.0
     private let stopThreshold = 5.0
     private let sustainedTimeRequired = 10.0
-    private let stopTimeRequired = 30.0
+    private let stopTimeRequired = 10.0
     
     // Trip Distance
     private var totalTripDistance: Double = 0.0
@@ -116,14 +124,21 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     
     func startTrip() {
         tripState = .inTrip
-        isInTrip = true
+        isStillDriving = true
         tripStartTime = Date()
         tripStartLocation = manager.location
         tripRoute.removeAll()
         totalTripDistance = 0.0
         
-        // Apply app blocking automatically
-        AppBlockingManager.shared.setShieldRestrictions()
+        // Use the injected AppBlockingManager
+        if let blockingManager = appBlockingManager {
+            print("Using injected AppBlockingManager")
+            print("Selected apps: \(blockingManager.selectionToDiscourage.applications.count)")
+            blockingManager.setShieldRestrictions()
+        } else {
+            print("No AppBlockingManager injected, using shared instance")
+            AppBlockingManager.shared.setShieldRestrictions()
+        }
         
         // Trigger app blocking
         NotificationCenter.default.post(name: .tripStarted, object: nil)
@@ -143,7 +158,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     
     func endTrip() {
         tripState = .idle
-        isInTrip = false
+        isStillDriving = false
         
         guard let startTime = tripStartTime,
               let startLocation = tripStartLocation,
@@ -156,7 +171,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         TripDataManager.shared.saveTrip(trip)
         
         // Remove app blocking automatically
-        AppBlockingManager.shared.resetDiscouragedItems()
+        appBlockingManager?.resetDiscouragedItems()
         
         // Reset trip blocking
         NotificationCenter.default.post(name: .tripEnded, object: nil)
@@ -169,13 +184,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         tripProgress = 0.0
     }
     
-    private func createTripData(startTime: Date, startLocation: CLLocation, endLocation: CLLocation) -> TripData {
+    private func createTripData(startTime: Date, startLocation: CLLocation, endLocation: CLLocation) -> TripDataModel {
         let endTime = Date()
         let duration = endTime.timeIntervalSince(startTime)
         let distance = totalTripDistance
         let averageSpeed = distance / duration * 2.23694 // Convert to mph
         
-        return TripData(
+        return TripDataModel(
             startTime: startTime,
             endTime: endTime,
             duration: duration,
@@ -185,7 +200,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             startLocation: startLocation,
             endLocation: endLocation,
             route: tripRoute,
-            appsBlocked: 0, // Will be updated by AppBlockingManager
+            appsBlocked: appBlockingManager?.blockedAppsCount ?? 0,
             safetyScore: calculateSafetyScore(),
             distractions: 0 // Will be tracked during trip
         )
@@ -211,30 +226,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         return squaredDifferences.reduce(0, +) / Double(speedHistory.count)
     }
 
-    // MARK: - Route Tracking
-    private func updateRoute(with location: CLLocation) {
-        guard isInTrip else { return }
-        
-        tripRoute.append(location)
-        
-        // Calculate distance if we have a previous location
-        if let lastLocation = lastLocation {
-            totalTripDistance += lastLocation.distance(from: location)
-            
-            // Update progress (simplified - could be more sophisticated)
-            updateTripProgress()
-        }
-        
-        lastLocation = location
-    }
-    
-    private func updateTripProgress() {
-        // Simple progress calculation based on time
-        guard let startTime = tripStartTime else { return }
-        let elapsed = Date().timeIntervalSince(startTime)
-        let estimatedDuration = totalTripDistance / (currentSpeedMph / 2.23694) // Convert mph to m/s
-        tripProgress = min(1.0, elapsed / estimatedDuration)
-    }
 
     // MARK: - CLLocationManagerDelegate
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -252,8 +243,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             }
         }
         
-        // Update route tracking
-        updateRoute(with: location)
         
         // Evaluate trip state
         evaluateTripState(speed: speedMph)
