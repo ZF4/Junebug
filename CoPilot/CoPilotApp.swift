@@ -22,7 +22,7 @@ struct CoPilotApp: App {
                 .environmentObject(store)
                 .environmentObject(appBlockingManager)
         }
-//        .modelContainer(for: UserModel.self)
+        .modelContainer(for: [UserModel.self, TripDataModel.self])
     }
 }
 

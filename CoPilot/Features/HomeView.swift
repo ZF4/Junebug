@@ -1,21 +1,23 @@
 import SwiftUI
+import SwiftData
 import FamilyControls
 import ManagedSettings
 import CoreLocation
-import SwiftData
 
 struct SafeDrivingHomeView: View {
     @EnvironmentObject var appBlockingManager: AppBlockingManager
     @StateObject private var locationManager = LocationManager.shared
+    
+    // SwiftData integration
+    @Environment(\.modelContext) private var modelContext
+    @Query private var users: [UserModel]
+    @Query(sort: \TripDataModel.startTime, order: .reverse) private var allTrips: [TripDataModel]
+    
     @State private var isDiscouragedPresented = false
     @State private var showingAlert = false
     @State private var viewAllClicked = false
     @State private var tempSelection = FamilyActivitySelection()
     @State private var tempAppInfos: [BlockedAppModel] = []
-    
-    // SwiftData integration
-    @Environment(\.modelContext) private var modelContext
-//    @Query private var users: [UserModel]
     
     var appOrApps: String {
         if appBlockingManager.blockedAppsCount == 1 {
@@ -25,9 +27,29 @@ struct SafeDrivingHomeView: View {
         }
     }
     
-    // Real data from LocationManager
-    @State private var recentTrips: [TripDataModel] = []
+    // Computed property for recent trips (non-active trips)
+    private var recentTrips: [TripDataModel] {
+        allTrips.filter { !$0.isActiveTrip }
+    }
+    
+    // Computed property for current active trip
+    private var activeTrip: TripDataModel? {
+        allTrips.first { $0.isActiveTrip }
+    }
+    
     @State private var weeklyStats = WeeklyStatsModel(totalTrips: 0, totalTime: "0h 0m", averageScore: 0, appsBlocked: 0)
+    
+    // Computed property to get or create the user
+    private var currentUser: UserModel {
+        if let user = users.first {
+            return user
+        } else {
+            let newUser = UserModel()
+            modelContext.insert(newUser)
+            try? modelContext.save()
+            return newUser
+        }
+    }
     
     var body: some View {
         NavigationView {
@@ -65,17 +87,33 @@ struct SafeDrivingHomeView: View {
                 .onAppear {
                     locationManager.requestPermissionsAndStart()
                     locationManager.setAppBlockingManager(appBlockingManager)
-                    loadTripData()
+                    locationManager.setModelContext(modelContext)
+                    
+                    loadUserData()
+                    calculateWeeklyStats()
+                }
+                .onChange(of: allTrips) { _, _ in
+                    calculateWeeklyStats()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .tripStarted)) { _ in
                     // Trip started - app blocking is handled by LocationManager
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .tripEnded)) { _ in
-                    // Trip ended - reload data
-                    loadTripData()
+                    // Trip ended - stats will update automatically via onChange
                 }
             }
         }
+    }
+    
+    // MARK: - SwiftData Methods
+    private func setupAppBlockingManager() {
+        // Inject the ModelContext into AppBlockingManager
+        appBlockingManager.setModelContext(modelContext)
+    }
+    
+    private func loadUserData() {
+        // Data loading is now handled by AppBlockingManager
+        setupAppBlockingManager()
     }
     
     private var headerView: some View {
@@ -451,18 +489,18 @@ struct SafeDrivingHomeView: View {
         .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
     }
     
-    // MARK: - Helper Methods
-    private func loadTripData() {
-        // Load from TripDataManager
-        recentTrips = TripDataManager.shared.recentTrips
-        calculateWeeklyStats()
-    }
-    
     private func calculateWeeklyStats() {
         let calendar = Calendar.current
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
         
-        let weeklyTrips = recentTrips.filter { $0.startTime >= weekAgo }
+        let weeklyTrips = allTrips.filter { 
+            $0.startTime >= weekAgo && !$0.isActiveTrip 
+        }
+        
+        print("Debug: Total trips in database: \(allTrips.count)")
+        print("Debug: Weekly trips: \(weeklyTrips.count)")
+        print("Debug: Active trips: \(allTrips.filter { $0.isActiveTrip }.count)")
+        
         let totalTrips = weeklyTrips.count
         let totalTime = weeklyTrips.reduce(0) { $0 + $1.duration }
         let averageScore = weeklyTrips.isEmpty ? 0 : weeklyTrips.reduce(0) { $0 + $1.safetyScore } / weeklyTrips.count
@@ -501,7 +539,6 @@ struct SafeDrivingHomeView: View {
         }
     }
 }
-
 
 // MARK: - Preview
 struct SafeDrivingHomeView_Previews: PreviewProvider {
