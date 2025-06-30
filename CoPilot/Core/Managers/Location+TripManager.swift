@@ -10,6 +10,7 @@ import Foundation
 import CoreLocation
 import UserNotifications
 import Combine
+import SwiftData
 
 enum TripState {
     case idle
@@ -59,6 +60,102 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var detectionTimer: Timer?
     private var stopTimer: Timer?
 
+    // Add ModelContext property
+    private var modelContext: ModelContext?
+    
+    // Add method to set ModelContext
+    func setModelContext(_ context: ModelContext) {
+        self.modelContext = context
+        loadTripState()
+    }
+    
+    // Add trip state persistence methods
+    private func saveTripState() {
+        guard let context = modelContext else { return }
+        
+        // Find or create active trip
+        let descriptor = FetchDescriptor<TripDataModel>(
+            predicate: #Predicate { $0.isActiveTrip == true }
+        )
+        
+        do {
+            let activeTrips = try context.fetch(descriptor)
+            let activeTrip: TripDataModel
+            
+            if let existing = activeTrips.first {
+                activeTrip = existing
+                // Update existing trip data
+                activeTrip.startTime = tripStartTime ?? Date()
+                activeTrip.distance = totalTripDistance
+                activeTrip.maxSpeed = speedHistory.max() ?? 0
+                activeTrip.startLatitude = tripStartLocation?.coordinate.latitude ?? 0
+                activeTrip.startLongitude = tripStartLocation?.coordinate.longitude ?? 0
+                activeTrip.routeLatitudes = tripRoute.map { $0.coordinate.latitude }
+                activeTrip.routeLongitudes = tripRoute.map { $0.coordinate.longitude }
+                activeTrip.appsBlocked = appBlockingManager?.blockedAppsCount ?? 0
+            } else {
+                // Create new active trip
+                activeTrip = TripDataModel(
+                    startTime: tripStartTime ?? Date(),
+                    endTime: Date(),
+                    duration: 0,
+                    distance: totalTripDistance,
+                    averageSpeed: 0,
+                    maxSpeed: speedHistory.max() ?? 0,
+                    startLocation: tripStartLocation ?? CLLocation(latitude: 0, longitude: 0),
+                    endLocation: manager.location ?? CLLocation(latitude: 0, longitude: 0),
+                    route: tripRoute,
+                    appsBlocked: appBlockingManager?.blockedAppsCount ?? 0,
+                    safetyScore: calculateSafetyScore(),
+                    distractions: 0
+                )
+                activeTrip.isActiveTrip = true
+                context.insert(activeTrip)
+            }
+            
+            // Update trip state
+            activeTrip.saveTripState(tripState, speedHistory: speedHistory)
+            
+            try context.save()
+        } catch {
+            print("Error saving trip state: \(error)")
+        }
+    }
+    
+    private func loadTripState() {
+        guard let context = modelContext else { return }
+        
+        let descriptor = FetchDescriptor<TripDataModel>(
+            predicate: #Predicate { $0.isActiveTrip == true }
+        )
+        
+        do {
+            let activeTrips = try context.fetch(descriptor)
+            if let activeTrip = activeTrips.first {
+                let (state, speedHistory) = activeTrip.loadTripState()
+                
+                // Restore trip state
+                tripState = state
+                self.speedHistory = speedHistory
+                
+                if state == .inTrip || state == .detecting {
+                    isStillDriving = true
+                    tripStartTime = activeTrip.startTime
+                    tripStartLocation = activeTrip.startLocation
+                    totalTripDistance = activeTrip.distance
+                    tripRoute = activeTrip.route
+                    
+                    // Restore app blocking if trip is active
+                    if state == .inTrip {
+                        appBlockingManager?.setShieldRestrictions()
+                    }
+                }
+            }
+        } catch {
+            print("Error loading trip state: \(error)")
+        }
+    }
+    
     override init() {
         super.init()
         configure()
@@ -82,7 +179,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func resumeLocationUpdatesAfterTermination() {
         manager.startUpdatingLocation()
     }
-
+    
     // MARK: - Trip State Management
     private func evaluateTripState(speed: Double) {
         switch tripState {
@@ -112,6 +209,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     
     private func startDetection() {
         tripState = .detecting
+        saveTripState()
         detectionTimer = Timer.scheduledTimer(withTimeInterval: sustainedTimeRequired, repeats: false) { [weak self] _ in
             self?.startTrip()
         }
@@ -140,7 +238,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             AppBlockingManager.shared.setShieldRestrictions()
         }
         
-        // Trigger app blocking
+        saveTripState()
         NotificationCenter.default.post(name: .tripStarted, object: nil)
     }
     
@@ -167,8 +265,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let trip = createTripData(startTime: startTime, startLocation: startLocation, endLocation: endLocation)
         currentTrip = trip
         
-        // Save trip data
-        TripDataManager.shared.saveTrip(trip)
+        // Save completed trip to SwiftData
+        saveCompletedTrip(trip)
         
         // Remove app blocking automatically
         appBlockingManager?.resetDiscouragedItems()
@@ -182,6 +280,31 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         tripRoute.removeAll()
         totalTripDistance = 0.0
         tripProgress = 0.0
+    }
+    
+    private func saveCompletedTrip(_ trip: TripDataModel) {
+        guard let context = modelContext else { return }
+        
+        // Mark any existing active trip as inactive
+        let descriptor = FetchDescriptor<TripDataModel>(
+            predicate: #Predicate { $0.isActiveTrip == true }
+        )
+        
+        do {
+            let activeTrips = try context.fetch(descriptor)
+            for activeTrip in activeTrips {
+                context.delete(activeTrip) // Delete the active trip
+            }
+            
+            // Insert the completed trip (with isActiveTrip = false)
+            trip.isActiveTrip = false
+            context.insert(trip)
+            try context.save()
+            
+            print("Debug: Deleted \(activeTrips.count) active trips, inserted 1 completed trip")
+        } catch {
+            print("Error saving completed trip: \(error)")
+        }
     }
     
     private func createTripData(startTime: Date, startLocation: CLLocation, endLocation: CLLocation) -> TripDataModel {

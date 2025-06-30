@@ -1,35 +1,42 @@
-//
-//  TripDataManager.swift
-//  CoPilot
-//
-//  Created by Zachary Farmer on 6/23/25.
-//
-
-
 import Foundation
-import CoreData
+import SwiftData
 
 class TripDataManager: ObservableObject {
     static let shared = TripDataManager()
     
     @Published var recentTrips: [TripDataModel] = []
+    private var modelContext: ModelContext?
     
-    private init() {
+    private init() {}
+    
+    func setModelContext(_ context: ModelContext) {
+        self.modelContext = context
         loadRecentTrips()
     }
     
     func saveTrip(_ trip: TripDataModel) {
-        // Save to Core Data
-        recentTrips.insert(trip, at: 0)
+        guard let context = modelContext else { return }
         
-        // Keep only last 50 trips
-        if recentTrips.count > 50 {
-            recentTrips = Array(recentTrips.prefix(50))
+        context.insert(trip)
+        
+        do {
+            try context.save()
+            loadRecentTrips() // Refresh the list
+        } catch {
+            print("Error saving trip: \(error)")
         }
     }
     
     private func loadRecentTrips() {
-        // Load from Core Data
-        // Implementation depends on your Core Data setup
+        guard let context = modelContext else { return }
+        
+        do {
+            let descriptor = FetchDescriptor<TripDataModel>(
+                sortBy: [SortDescriptor(\.startTime, order: .reverse)]
+            )
+            recentTrips = try context.fetch(descriptor)
+        } catch {
+            print("Error loading trips: \(error)")
+        }
     }
 }
