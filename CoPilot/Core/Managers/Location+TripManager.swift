@@ -11,6 +11,7 @@ import CoreLocation
 import UserNotifications
 import Combine
 import SwiftData
+import UIKit
 
 enum TripState {
     case idle
@@ -50,8 +51,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     // Detection Thresholds
     private let speedThreshold = 15.0
     private let stopThreshold = 5.0
-    private let sustainedTimeRequired = 10.0
-    private let stopTimeRequired = 10.0
+    private let sustainedTimeRequired = 3.0
+    private let stopTimeRequired = 3.0
     
     // Trip Distance
     private var totalTripDistance: Double = 0.0
@@ -59,6 +60,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     // Timers
     private var detectionTimer: Timer?
     private var stopTimer: Timer?
+    private var stationaryCheckTimer: Timer?
+    private var lastLocationUpdateTime: Date?
 
     // Add ModelContext property
     private var modelContext: ModelContext?
@@ -168,6 +171,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .automotiveNavigation
         manager.distanceFilter = 10 // meters - update every 10m
+        
+        // Add stationary check timer
+        stationaryCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.checkIfStationary()
+        }
     }
 
     func requestPermissionsAndStart() {
@@ -185,21 +193,25 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         switch tripState {
         case .idle:
             if speed > speedThreshold {
+                print("IDLE: Speed greater than threshold")
                 startDetection()
             }
             
         case .detecting:
             if speed < stopThreshold {
+                print("DETECTING: Speed less than threshold")
                 resetDetection()
             }
             
         case .inTrip:
             if speed < stopThreshold {
+                print("IN TRIP: Speed less than threshold")
                 startEnding()
             }
             
         case .ending:
             if speed > speedThreshold {
+                print("ENDING: Speed greater than threshold")
                 // Resume trip
                 tripState = .inTrip
                 stopTimer?.invalidate()
@@ -227,6 +239,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         tripStartLocation = manager.location
         tripRoute.removeAll()
         totalTripDistance = 0.0
+        
+        // Ensure stationary check timer is running
+        if stationaryCheckTimer == nil {
+            stationaryCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+                self?.checkIfStationary()
+            }
+        }
         
         // Use the injected AppBlockingManager
         if let blockingManager = appBlockingManager {
@@ -257,6 +276,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func endTrip() {
         tripState = .idle
         isStillDriving = false
+        
+        // Invalidate the stationary check timer
+        stationaryCheckTimer?.invalidate()
+        stationaryCheckTimer = nil
         
         guard let startTime = tripStartTime,
               let startLocation = tripStartLocation,
@@ -349,6 +372,18 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         return squaredDifferences.reduce(0, +) / Double(speedHistory.count)
     }
 
+    // Add this new method
+    private func checkIfStationary() {
+        guard tripState == .inTrip else { return }
+        
+        // If we haven't received a location update in the last 10 seconds, 
+        // assume we're stationary and start ending the trip
+        if let lastUpdate = lastLocationUpdateTime,
+           Date().timeIntervalSince(lastUpdate) > 10.0 {
+            print("No location updates for 10+ seconds, assuming stationary")
+            startEnding()
+        }
+    }
 
     // MARK: - CLLocationManagerDelegate
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -360,6 +395,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         DispatchQueue.main.async {
             self.currentSpeedMph = speedMph
             self.speedHistory.append(speedMph)
+            self.lastLocationUpdateTime = Date()
             
             if self.speedHistory.count > 100 {
                 self.speedHistory.removeFirst()

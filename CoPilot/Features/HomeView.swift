@@ -78,7 +78,7 @@ struct SafeDrivingHomeView: View {
                 .familyActivityPicker(isPresented: $isDiscouragedPresented, selection: $appBlockingManager.selectionToDiscourage)
                 .background(
                     LinearGradient(
-                        colors: [Color(red: 0.97, green: 0.98, blue: 1.0), Color(red: 0.93, green: 0.94, blue: 0.99)],
+                        colors: [Color("backgroundColorOne"), Color("backgroundColorTwo")],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -138,7 +138,7 @@ struct SafeDrivingHomeView: View {
                     .font(.title2)
                     .foregroundColor(.secondary)
                     .frame(width: 44, height: 44)
-                    .background(Color.white)
+                    .background(Color("panelBackground"))
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
             }
@@ -216,7 +216,7 @@ struct SafeDrivingHomeView: View {
         .background(
             locationManager.isStillDriving ?
             LinearGradient(colors: [Color.green, Color(red: 0.0, green: 0.7, blue: 0.4)], startPoint: .leading, endPoint: .trailing) :
-                LinearGradient(colors: [Color.white, Color.white], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(colors: [Color("panelBackground"), Color("panelBackground")], startPoint: .leading, endPoint: .trailing)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
@@ -242,7 +242,7 @@ struct SafeDrivingHomeView: View {
         case .detecting:
             return "Speed: \(String(format: "%.0f", locationManager.currentSpeedMph)) mph"
         case .inTrip:
-            return "\(appBlockingManager.selectionToDiscourage.applications.count) \(appOrApps) blocked"
+            return "\(appBlockingManager.selectionToDiscourage.applications.count) \(appOrApps) blocked - \(String(format: "%.0f", locationManager.currentSpeedMph)) mph"
         case .ending:
             return "Stopping soon..."
         }
@@ -273,7 +273,7 @@ struct SafeDrivingHomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Color.white)
+            .background(Color("panelBackground"))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
             
@@ -300,7 +300,7 @@ struct SafeDrivingHomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Color.white)
+            .background(Color("panelBackground"))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
         }
@@ -337,23 +337,40 @@ struct SafeDrivingHomeView: View {
                     if appTokens.isEmpty {
                         // Show placeholder when no apps are selected
                         ForEach(0..<3, id: \.self) { index in
-                            Circle()
-                                .stroke(Color.white, lineWidth: 2)
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 40, height: 40)
-                                .overlay(
-                                    Image(systemName: "plus")
-                                        .foregroundColor(.gray)
-                                )
+                            ZStack {
+                                // Background circle with shadow
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 2)
+                                    .fill(Color.gray.opacity(0.1))
+                                    .frame(width: 40, height: 40)
+                                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
+                                
+                                // Icon on top (no shadow)
+                                Image(systemName: "plus")
+                                    .foregroundColor(.gray)
+                            }
+                            .zIndex(Double(2 - index))
                         }
                     } else {
                         ForEach(Array(appTokens.enumerated()), id: \.offset) { index, token in
-                            AppIconView(token: token)
+                            ZStack {
+                                // Shadow layer - matches your AppIconView's circle overlay
+                                Circle()
+                                    .fill(Color.gray.opacity(0.1))
+                                    .stroke(Color.white, lineWidth: 2)
+                                    .frame(width: 40, height: 40)
+                                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
+                                
+                                // Your app icon on top - remove the overlay to avoid duplication
+                                AppIconView(token: token)
+                            }
+                            .zIndex(Double(appTokens.count - index))
                         }
                         
                         // Show +X more indicator if there are more than 5 apps
                         if appBlockingManager.selectionToDiscourage.applicationTokens.count > 5 {
                             ZStack {
+                                // Background with shadow
                                 Circle()
                                     .fill(Color.blue.opacity(0.1))
                                     .frame(width: 40, height: 40)
@@ -361,12 +378,15 @@ struct SafeDrivingHomeView: View {
                                         Circle()
                                             .stroke(Color.white, lineWidth: 2)
                                     )
+                                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0)
                                 
+                                // Text on top (no shadow)
                                 Text("+\(appBlockingManager.selectionToDiscourage.applicationTokens.count - 5)")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.blue)
                             }
+                            .zIndex(-1)
                         }
                     }
                 }
@@ -386,7 +406,7 @@ struct SafeDrivingHomeView: View {
             }
         }
         .padding(20)
-        .background(Color.white)
+        .background(Color("panelBackground"))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
     }
@@ -484,7 +504,7 @@ struct SafeDrivingHomeView: View {
             }
         }
         .padding(20)
-        .background(Color.white)
+        .background(Color("panelBackground"))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
     }
@@ -496,10 +516,6 @@ struct SafeDrivingHomeView: View {
         let weeklyTrips = allTrips.filter { 
             $0.startTime >= weekAgo && !$0.isActiveTrip 
         }
-        
-        print("Debug: Total trips in database: \(allTrips.count)")
-        print("Debug: Weekly trips: \(weeklyTrips.count)")
-        print("Debug: Active trips: \(allTrips.filter { $0.isActiveTrip }.count)")
         
         let totalTrips = weeklyTrips.count
         let totalTime = weeklyTrips.reduce(0) { $0 + $1.duration }
