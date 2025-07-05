@@ -12,10 +12,5 @@ struct AppIconView: View {
             .labelStyle(.iconOnly)
             .frame(width: 40, height: 40)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .stroke(Color.white, lineWidth: 2)
-            )
     }
 }
