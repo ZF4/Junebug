@@ -12,6 +12,8 @@ import UserNotifications
 import Combine
 import SwiftData
 import UIKit
+import FamilyControls
+import ManagedSettings
 
 enum TripState {
     case idle
@@ -162,6 +164,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     override init() {
         super.init()
         configure()
+        ForceQuitDetector.shared.setupForceQuitDetection()
     }
 
     private func configure() {
@@ -170,10 +173,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .automotiveNavigation
-        manager.distanceFilter = 10 // meters - update every 10m
+        manager.distanceFilter = 50 // meters - update every 50m
         
         // Add stationary check timer
-        stationaryCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        stationaryCheckTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
             self?.checkIfStationary()
         }
     }
@@ -409,6 +412,25 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("Location manager failed: \(error)")
+    }
+
+    // Add this method to handle app launch
+    func handleAppLaunch() {
+        let wasForceQuit = ForceQuitDetector.shared.checkForPreviousForceQuit()
+        
+        if wasForceQuit {
+            // If app was force-quit, check if we should be in a trip
+            if let location = manager.location {
+                let speed = max(0, location.speed)
+                let speedMph = speed * 2.23694
+                
+                if speedMph > speedThreshold {
+                    // Still driving - restore trip state
+                    print("Force-quit detected while driving - restoring trip state")
+                    startDetection()
+                }
+            }
+        }
     }
 }
 

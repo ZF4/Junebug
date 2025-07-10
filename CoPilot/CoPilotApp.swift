@@ -14,15 +14,22 @@ struct CoPilotApp: App {
     @StateObject var appBlockingManager = AppBlockingManager()
     @StateObject var store = ManagedSettingsStore()
     
-
-    
     var body: some Scene {
         WindowGroup {
             SafeDrivingHomeView()
                 .environmentObject(store)
                 .environmentObject(appBlockingManager)
         }
-        .modelContainer(for: [UserModel.self, TripDataModel.self])
+        .modelContainer(for: [UserModel.self, TripDataModel.self]) { result in
+            switch result {
+            case .success(let modelContainer):
+                // Set ModelContext for both the local instance and the shared instance
+                appBlockingManager.setModelContext(modelContainer.mainContext)
+                AppBlockingManager.shared.setModelContext(modelContainer.mainContext)
+            case .failure(let error):
+                print("Error creating model container: \(error)")
+            }
+        }
     }
 }
 
@@ -39,7 +46,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 print("Error for Family Controls: \(error)")
             }
         }
-        
+        LocationManager.shared.handleAppLaunch()
         // ✅ Resume LocationManager if relaunched due to location event
 //        if launchOptions?[.location] != nil {
 //            LocationManager.shared.resumeLocationUpdatesAfterTermination()

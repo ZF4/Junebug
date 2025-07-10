@@ -15,6 +15,7 @@ struct SafeDrivingHomeView: View {
     
     @State private var isDiscouragedPresented = false
     @State private var showingAlert = false
+    @State private var showSettings = true
     @State private var viewAllClicked = false
     @State private var tempSelection = FamilyActivitySelection()
     @State private var tempAppInfos: [BlockedAppModel] = []
@@ -133,6 +134,7 @@ struct SafeDrivingHomeView: View {
             
             Button(action: {
                 // Settings action
+                showSettings.toggle()
             }) {
                 Image(systemName: "gearshape")
                     .font(.title2)
@@ -141,6 +143,14 @@ struct SafeDrivingHomeView: View {
                     .background(Color("panelBackground"))
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+            }
+            .systemTrayView($showSettings) {
+                VStack(spacing: 20) {
+                    ZStack {
+                        SettingsView()
+                    }
+                }
+                .padding(20)
             }
         }
         .padding(.top, 8)
@@ -183,34 +193,34 @@ struct SafeDrivingHomeView: View {
                     }
                 }
             }
-            
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    if locationManager.isStillDriving {
-                        // End current trip
-                        locationManager.endTrip()
-                    } else {
-                        // Start manual mode
-                        locationManager.startManualTrip()
-                    }
-                }
-            }) {
-                Text(locationManager.isStillDriving ? "End Driving Session" : "Start Manual Mode")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(
-                        locationManager.isStillDriving ?
-                        Color.white.opacity(0.2) : Color.blue
-                    )
-                    .overlay(
-                        locationManager.isStillDriving ?
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1) : nil
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
+            //MARK: Manual start/end button removed
+//            Button(action: {
+//                withAnimation(.easeInOut(duration: 0.3)) {
+//                    if locationManager.isStillDriving {
+//                        // End current trip
+//                        locationManager.endTrip()
+//                    } else {
+//                        // Start manual mode
+//                        locationManager.startManualTrip()
+//                    }
+//                }
+//            }) {
+//                Text(locationManager.isStillDriving ? "End Driving Session" : "Start Manual Mode")
+//                    .font(.headline)
+//                    .foregroundColor(.white)
+//                    .frame(maxWidth: .infinity)
+//                    .frame(height: 50)
+//                    .background(
+//                        locationManager.isStillDriving ?
+//                        Color.white.opacity(0.2) : Color.blue
+//                    )
+//                    .overlay(
+//                        locationManager.isStillDriving ?
+//                        RoundedRectangle(cornerRadius: 12)
+//                            .stroke(Color.white.opacity(0.3), lineWidth: 1) : nil
+//                    )
+//                    .clipShape(RoundedRectangle(cornerRadius: 12))
+//            }
         }
         .padding(24)
         .background(
@@ -238,7 +248,7 @@ struct SafeDrivingHomeView: View {
     private var drivingStatusSubtext: String {
         switch locationManager.tripState {
         case .idle:
-            return "Tap to start manual mode"
+            return "Blocking will start automatically when you start driving."
         case .detecting:
             return "Speed: \(String(format: "%.0f", locationManager.currentSpeedMph)) mph"
         case .inTrip:

@@ -41,7 +41,11 @@ class AppBlockingManager: ObservableObject {
     }
     
     private func saveSelectionToDatabase() {
-        guard let context = modelContext else { return }
+        print("Debug: Attempting to save selection to database")
+        guard let context = modelContext else { 
+            print("Debug: No model context available for saving")
+            return 
+        }
         
         do {
             let users = try context.fetch(FetchDescriptor<UserModel>())
@@ -49,30 +53,44 @@ class AppBlockingManager: ObservableObject {
             
             if let existingUser = users.first {
                 user = existingUser
+                print("Debug: Using existing user")
             } else {
                 user = UserModel()
                 context.insert(user)
+                print("Debug: Created new user")
             }
             
+            print("Debug: Saving selection with \(selectionToDiscourage.applicationTokens.count) app tokens")
             user.saveSelection(selectionToDiscourage)
             try context.save()
+            print("Debug: Successfully saved selection to database")
         } catch {
             print("Error saving selection to database: \(error)")
         }
     }
     
-    private func loadSelectionFromDatabase() {
-        guard let context = modelContext else { return }
+    public func loadSelectionFromDatabase() {
+        print("Debug: Attempting to load selection from database")
+        guard let context = modelContext else { 
+            print("Debug: No model context available")
+            return 
+        }
         
         do {
             let users = try context.fetch(FetchDescriptor<UserModel>())
+            print("Debug: Found \(users.count) users in database")
+            
             if let user = users.first,
                let savedSelection = user.loadSelection() {
+                print("Debug: Successfully loaded selection with \(savedSelection.applicationTokens.count) app tokens")
                 DispatchQueue.main.async {
                     self.selectionToDiscourage = savedSelection
+                    print("Debug: Updated selectionToDiscourage with \(self.selectionToDiscourage.applicationTokens.count) app tokens")
                     // Apply the loaded restrictions
 //                    self.setShieldRestrictions()
                 }
+            } else {
+                print("Debug: No saved selection found in database")
             }
         } catch {
             print("Error loading selection from database: \(error)")
